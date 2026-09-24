@@ -112,6 +112,10 @@ Paired values: **Without vLLM Jev → With vLLM Jev**.
 
 
 
+## Contributing
+
+Report bugs and feature requests in [Issues](https://github.com/Egbertjing/vllm-jev/issues). Use [Discussions](https://github.com/Egbertjing/vllm-jev/discussions) for questions and ideas. Submit code changes as [pull requests](https://github.com/Egbertjing/vllm-jev/pulls); the maintainer reviews them before merging.
+
 ## License
 
 Apache-2.0. The Choice prompt follows MIT-licensed [Open-Jev](https://github.com/Zefan-Cai/Open-Jev); see [third-party notices](THIRD_PARTY_NOTICES.md).
