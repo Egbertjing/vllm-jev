@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vllm-jev"
+version = "0.1.0"
+description = "Native vLLM pooling and endpoint integration for Jev candidate scoring"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md", "licenses/Open-Jev-MIT.txt"]
+dependencies = ["vllm==0.29.0", "transformers>=5.10,<5.11", "peft>=0.20,<0.21", "safetensors", "huggingface_hub>=0.34,<2"]
+
+[project.scripts]
+vllm-jev = "vllm_jev.cli:main"
+
+[project.entry-points."vllm.general_plugins"]
+vllm_jev_model = "vllm_jev:register"
+
+[project.entry-points."vllm.endpoint_plugins"]
+vllm_jev_endpoint = "vllm_jev.endpoint:JevEndpointPlugin"
+
+[tool.setuptools.packages.find]
+include = ["vllm_jev*"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
