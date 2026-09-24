@@ -143,7 +143,7 @@ Noul (yes/no) and Score do not have separate Jev URLs. Send them to `/v1/systemo
 
 ### System One
 
-`POST /v1/systemone` accepts a shared `state` and a map of `questions`. Each question has `type`, `instructions`, and `criteria`. See the [README example](../README.md#example).
+`POST /v1/systemone` accepts a shared `state` and a map of `questions`. Each question has `type` and `instructions`; Choice and Score also require `criteria`. The examples below each ask one question. You can put several questions in the same `questions` map.
 
 | Type | `criteria` | Result |
 |---|---|---|
@@ -151,7 +151,46 @@ Noul (yes/no) and Score do not have separate Jev URLs. Send them to `/v1/systemo
 | `noul` | Optional `true` and `false` descriptions | Probability of “yes” |
 | `score` | Array of 2–10 ordered descriptions | Expected score and level probabilities |
 
-For example, this request asks all three question types about the same state:
+#### Choice
+
+Use `criteria` to map each label to its description:
+
+```bash
+curl -sS http://127.0.0.1:8795/v1/systemone \
+  -H 'Content-Type: application/json' \
+  -d '{"state":"A customer was charged twice and requests a refund.","questions":{"intent":{"type":"choice","instructions":"What is the issue?","criteria":{"billing":"Payment or refund","technical":"Software error"}}}}'
+```
+
+Read the selected label from `answers.intent.choice` and its distribution from `answers.intent.probabilities`.
+
+#### Noul (yes/no)
+
+Noul needs no `criteria` unless you want to describe the true and false cases:
+
+```bash
+curl -sS http://127.0.0.1:8795/v1/systemone \
+  -H 'Content-Type: application/json' \
+  -d '{"state":"A customer was charged twice and requests a refund.","questions":{"urgent":{"type":"noul","instructions":"Does this require urgent action?"}}}'
+```
+
+`answers.urgent.noul` is the probability of yes, between 0 and 1.
+
+#### Score (ordered levels)
+
+List the levels in order, from lowest to highest:
+
+```bash
+curl -sS http://127.0.0.1:8795/v1/systemone \
+  -H 'Content-Type: application/json' \
+  -d '{"state":"A customer was charged twice and requests a refund.","questions":{"severity":{"type":"score","instructions":"How severe is it?","criteria":["low","medium","high"]}}}'
+```
+
+Read the expected level from `answers.severity.score` and the level distribution from `answers.severity.probabilities`. Levels are numbered from zero, so three levels produce a score between 0 and 2.
+
+<details>
+<summary>Ask Choice, Noul, and Score together</summary>
+
+The questions share one `state`:
 
 ```bash
 curl -sS http://127.0.0.1:8795/v1/systemone \
@@ -159,7 +198,7 @@ curl -sS http://127.0.0.1:8795/v1/systemone \
   -d '{"state":"A customer was charged twice and requests a refund.","questions":{"intent":{"type":"choice","instructions":"What is the issue?","criteria":{"billing":"Payment or refund","technical":"Software error"}},"urgent":{"type":"noul","instructions":"Does this require urgent action?"},"severity":{"type":"score","instructions":"How severe is it?","criteria":["low","medium","high"]}}}'
 ```
 
-The reply places the selected label and probabilities in `answers.intent`, the yes probability in `answers.urgent.noul`, and the expected level plus probabilities in `answers.severity`. Score levels are numbered from zero, so three levels produce a score between 0 and 2.
+</details>
 
 A request may contain up to 64 questions and 256 candidate sequences. `usage.output_tokens` is zero because the model returns pooled scores rather than generating answer text.
 For `score`, Tiny-Jev uses the level descriptions as probability keys; the scalar-head protocols use zero-based level indices.
@@ -177,13 +216,21 @@ For `score`, Tiny-Jev uses the level descriptions as probability keys; the scala
 
 The response includes `choice`, `scores`, `probabilities`, token/cache counts, and timing. Probabilities sum to one over the supplied options. `confidence` measures how far the selected probability is above a uniform choice; it is not an estimate of answer correctness.
 
-`POST /plugins/vllm-jev/batch` accepts `{"requests": [<Choice request>, ...]}`. It supports up to 64 decisions and 256 candidates in total. vLLM batches the underlying candidate requests.
-
 ```bash
 curl -sS http://127.0.0.1:8795/plugins/vllm-jev/choice \
   -H 'Content-Type: application/json' \
   -d '{"state":"The sky is blue.","question":"Choose the true statement.","options":["The sky is blue","The sky is green"]}'
 ```
+
+`POST /plugins/vllm-jev/batch` accepts `{"requests": [<Choice request>, ...]}`. It supports up to 64 decisions and 256 candidates in total. vLLM batches the underlying candidate requests:
+
+```bash
+curl -sS http://127.0.0.1:8795/plugins/vllm-jev/batch \
+  -H 'Content-Type: application/json' \
+  -d '{"requests":[{"state":"The sky is blue.","question":"Choose the true statement.","options":["The sky is blue","The sky is green"]},{"state":"The grass is green.","question":"Choose the true statement.","options":["The grass is green","The grass is blue"]}]}'
+```
+
+The reply has one Choice result per request under `results`, in input order.
 
 The Jev endpoints add model-specific prompts and cross-candidate normalization to the native vLLM pooling tasks.
 
