@@ -129,6 +129,18 @@ vLLM handles scheduling, batching, compilation, and KV-cache management. The two
 
 ## HTTP API
 
+The routes describe request shapes; the `type` field selects the decision task. The same routes work across the [supported models](#supported-models).
+
+| Route | Use it for | Result |
+|---|---|---|
+| `POST /v1/systemone` | One shared state with one or more `choice`, `noul`, or `score` questions | `answers` keyed by question ID |
+| `POST /plugins/vllm-jev/choice` | One Choice question with 2–255 options | Selected `choice`, raw `scores`, and `probabilities` |
+| `POST /plugins/vllm-jev/batch` | Several Choice requests, up to 64 decisions and 256 candidates total | One Choice result per request in `results` |
+| `POST /classify` | Native vLLM classification on a scalar-head model | Model score without Jev candidate prompts or cross-option probabilities |
+| `POST /pooling` | Native vLLM pooling task | Raw pooling output for the loaded model |
+
+Noul (yes/no) and Score do not have separate Jev URLs. Send them to `/v1/systemone` with `"type":"noul"` or `"type":"score"`.
+
 ### System One
 
 `POST /v1/systemone` accepts a shared `state` and a map of `questions`. Each question has `type`, `instructions`, and `criteria`. See the [README example](../README.md#example).
@@ -138,6 +150,16 @@ vLLM handles scheduling, batching, compilation, and KV-cache management. The two
 | `choice` | Map of candidate names to descriptions | Selected name and candidate probabilities |
 | `noul` | Optional `true` and `false` descriptions | Probability of “yes” |
 | `score` | Array of 2–10 ordered descriptions | Expected score and level probabilities |
+
+For example, this request asks all three question types about the same state:
+
+```bash
+curl -sS http://127.0.0.1:8795/v1/systemone \
+  -H 'Content-Type: application/json' \
+  -d '{"state":"A customer was charged twice and requests a refund.","questions":{"intent":{"type":"choice","instructions":"What is the issue?","criteria":{"billing":"Payment or refund","technical":"Software error"}},"urgent":{"type":"noul","instructions":"Does this require urgent action?"},"severity":{"type":"score","instructions":"How severe is it?","criteria":["low","medium","high"]}}}'
+```
+
+The reply places the selected label and probabilities in `answers.intent`, the yes probability in `answers.urgent.noul`, and the expected level plus probabilities in `answers.severity`. Score levels are numbered from zero, so three levels produce a score between 0 and 2.
 
 A request may contain up to 64 questions and 256 candidate sequences. `usage.output_tokens` is zero because the model returns pooled scores rather than generating answer text.
 For `score`, Tiny-Jev uses the level descriptions as probability keys; the scalar-head protocols use zero-based level indices.
@@ -163,7 +185,7 @@ curl -sS http://127.0.0.1:8795/plugins/vllm-jev/choice \
   -d '{"state":"The sky is blue.","question":"Choose the true statement.","options":["The sky is blue","The sky is green"]}'
 ```
 
-Native `/classify` remains available for the scalar-head models, and `/pooling` exposes the selected native task. The Jev endpoints add model-specific prompts and cross-candidate normalization.
+The Jev endpoints add model-specific prompts and cross-candidate normalization to the native vLLM pooling tasks.
 
 ## Serve with vLLM directly
 

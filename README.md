@@ -83,7 +83,7 @@ curl -sS http://127.0.0.1:8795/v1/systemone \
 
 The response contains `answers.intent.choice` and `answers.intent.probabilities` for the supplied labels.
 
-See the [integration guide](docs/guide.md) for API fields, model export, storage paths, vLLM options, and multi-GPU serving. The plugin targets **vLLM 0.29.0** and **Python 3.12+**.
+See the [HTTP route map](docs/guide.md#http-api) for Choice, Noul, and Score requests. The [integration guide](docs/guide.md) also covers model export, storage paths, vLLM options, and multi-GPU serving. The plugin targets **vLLM 0.29.0** and **Python 3.12+**.
 
 ## Hosted inference performance
 
