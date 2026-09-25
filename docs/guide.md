@@ -1,6 +1,6 @@
 # User guide
 
-vLLM Jev serves supported Jev models through vLLM. Send a state and a question to get a label, a probability distribution, a yes/no probability, or an ordered score. Serving does not train the model.
+Serve Jev models with vLLM. Send text or images and questions; receive labels, probabilities, yes/no answers, or scores.
 
 ## Installation
 
@@ -11,6 +11,8 @@ uv venv --python 3.12 .venv
 source .venv/bin/activate
 uv pip install .
 ```
+
+For development, use `uv pip install -e .` to install from your working tree.
 
 ## Quickstart
 
@@ -28,14 +30,21 @@ curl -f http://127.0.0.1:8795/health
 
 ## Supported models
 
-The same HTTP requests work with all four models.
+Input support depends on the model:
 
-| Model | Start server |
-|---|---|
-| [ZefanCai/Open-Jev-2B](https://huggingface.co/ZefanCai/Open-Jev-2B) | `vllm-jev serve ZefanCai/Open-Jev-2B` |
-| [ZefanCai/Open-Jev-9B](https://huggingface.co/ZefanCai/Open-Jev-9B) | `vllm-jev serve ZefanCai/Open-Jev-9B` |
-| [IamBusy/OpenJev-0.6B](https://huggingface.co/IamBusy/OpenJev-0.6B) | `vllm-jev serve IamBusy/OpenJev-0.6B` |
-| [lostargon/Tiny-Jev](https://huggingface.co/lostargon/Tiny-Jev) | `vllm-jev serve lostargon/Tiny-Jev` |
+| Model | Input | Start server |
+|---|---|---|
+| [ZefanCai/Open-Jev-2B](https://huggingface.co/ZefanCai/Open-Jev-2B) | Text | `vllm-jev serve ZefanCai/Open-Jev-2B` |
+| [ZefanCai/Open-Jev-9B](https://huggingface.co/ZefanCai/Open-Jev-9B) | Text | `vllm-jev serve ZefanCai/Open-Jev-9B` |
+| [IamBusy/OpenJev-0.6B](https://huggingface.co/IamBusy/OpenJev-0.6B) | Text | `vllm-jev serve IamBusy/OpenJev-0.6B` |
+| [lostargon/Tiny-Jev](https://huggingface.co/lostargon/Tiny-Jev) | Text | `vllm-jev serve lostargon/Tiny-Jev` |
+| [Valen-Team/Valen-Preview-0923](https://huggingface.co/Valen-Team/Valen-Preview-0923) | Text + images | `vllm-jev serve Valen-Team/Valen-Preview-0923` |
+| [yah01/vjev-vision](https://huggingface.co/yah01/vjev-vision) | Text + images | `vllm-jev serve yah01/vjev-vision` |
+| [yah01/vjev-vision-pilot](https://huggingface.co/yah01/vjev-vision-pilot) | Text + images | `vllm-jev serve yah01/vjev-vision-pilot` |
+
+Use `yah01/vjev-vision` for the current vjev release; the pilot is an earlier checkpoint. Both were trained on single images.
+
+Image requests use `/v1/systemone`: up to 8 PNG/JPEG images, 8 MiB per image. Video input is not supported.
 
 ## Serving options
 
@@ -45,7 +54,7 @@ Choose a GPU or pass regular vLLM options after the model ID:
 CUDA_VISIBLE_DEVICES=0 vllm-jev serve ZefanCai/Open-Jev-2B --port 9000
 ```
 
-The default port is 8795, the GPU memory budget is 90%, and the maximum sequence length is 4,096 tokens. Run `vllm-jev serve --help=all` to see additional vLLM options.
+The default port is 8795 and the GPU memory budget is 90%. The default maximum sequence length is 4,096 tokens, or 8,192 for Valen. Run `vllm-jev serve --help=all` to see additional vLLM options.
 
 Set `HF_HOME` for the Hugging Face base-model cache. Set `VLLM_JEV_HOME` for the downloaded Jev files and prepared model; its default is `.local/` in your current directory.
 
@@ -53,13 +62,11 @@ Set `HF_HOME` for the Hugging Face base-model cache. Set `VLLM_JEV_HOME` for the
 
 | Route | What it does |
 |---|---|
-| `POST /plugins/vllm-jev/choice` | Ask one multiple-choice question; returns a label and probabilities. |
-| `POST /plugins/vllm-jev/batch` | Ask several multiple-choice questions together. |
-| `POST /v1/systemone` | Ask Choice, Noul (yes/no), or Score questions about a shared state. |
+| `POST /v1/systemone` | Choice, Noul (yes/no), and Score for all supported models. |
+| `POST /plugins/vllm-jev/choice` | One multiple-choice question for text models. |
+| `POST /plugins/vllm-jev/batch` | A batch of multiple-choice questions for text models. |
 
-Noul and Score use `/v1/systemone` with a question `type`. They do not have separate URLs. The native vLLM `/classify` and `/pooling` routes remain available for raw model outputs.
-
-One System One request supports up to 64 questions and 256 candidate sequences.
+Noul and Score are question types on `/v1/systemone`. One request supports up to 64 questions and 256 candidates.
 
 ### Choice
 
@@ -110,3 +117,40 @@ curl -sS http://127.0.0.1:8795/plugins/vllm-jev/batch \
 ```
 
 The reply has one Choice result per request under `results`, in the same order.
+
+<a id="text-and-image-with-valen"></a>
+
+### Text and images
+
+Start Valen or either vjev model from the table above. Put image data URLs in `state.messages`; use a `state` string for text-only requests. For a local PNG:
+
+```python
+import base64
+import json
+import urllib.request
+
+image = base64.b64encode(open("image.png", "rb").read()).decode()
+request = {
+    "state": {"messages": [{"role": "user", "content": [
+        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image}"}},
+        {"type": "text", "text": "Look at this image."},
+    ]}]},
+    "questions": {"color": {"type": "choice", "instructions": "What color is the object?", "criteria": {"red": "Red", "blue": "Blue"}}},
+}
+body = json.dumps(request).encode()
+url = "http://127.0.0.1:8795/v1/systemone"
+response = urllib.request.urlopen(urllib.request.Request(url, body, {"Content-Type": "application/json"}))
+print(json.load(response)["answers"]["color"])
+```
+
+`answers.color` contains `choice`, `confidence`, and `probabilities`. The same image request can include Noul and Score questions.
+
+## Updates
+
+### 2026-09-25
+
+- Added Valen and vjev text/image serving.
+- Improved Tiny-Jev inference speed.
+- Improved model validation and request handling.
+
+See the [demos](../README.md#demos) and [performance results](../README.md#inference-performance).

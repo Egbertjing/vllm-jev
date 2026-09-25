@@ -2,11 +2,13 @@
 
 import argparse
 import json
+import os
 import shutil
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
+from filelock import FileLock
 from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 from huggingface_hub.utils import validate_repo_id
 
@@ -63,13 +65,121 @@ def prepare(model_id: str, workspace: Path, protocol: str = "auto") -> Path:
     if model_id in PROFILES:
         model_id = PROFILES[model_id][0]
     validate_repo_id(model_id)
-    if protocol not in ("auto", CHOICE_PROTOCOL, BRANCH_PROTOCOL, TINY_PROTOCOL):
+    if protocol not in (
+        "auto",
+        CHOICE_PROTOCOL,
+        BRANCH_PROTOCOL,
+        TINY_PROTOCOL,
+        "valen_qwen_v1",
+        "vjev_vision_v1",
+    ):
         raise ValueError(f"unknown protocol: {protocol}")
     known = {spec[0]: name for name, spec in PROFILES.items()}
     if model_id in known:
         if protocol not in ("auto", CHOICE_PROTOCOL):
             raise ValueError(f"{model_id} uses {CHOICE_PROTOCOL}, not {protocol}")
         return prepare_open_jev(known[model_id], workspace)
+
+    workspace = workspace.resolve()
+    output = workspace / "checkpoint" / model_id
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with FileLock(str(output) + ".lock"):
+        return _prepare(model_id, workspace, protocol)
+
+
+def _prepare(model_id: str, workspace: Path, protocol: str) -> Path:
+    from .vjev_export import REVISIONS as VJEV_REVISIONS
+
+    if model_id in VJEV_REVISIONS:
+        if protocol not in ("auto", "vjev_vision_v1"):
+            raise ValueError(f"{model_id} uses vjev_vision_v1, not {protocol}")
+        from .vjev_export import export_vjev, verify_vjev
+
+        output = workspace / "checkpoint" / model_id
+        if output.exists():
+            manifest = json.loads((output / "vjev_manifest.json").read_text())
+            if manifest.get("source_repository") != model_id:
+                raise ValueError("cached checkpoint belongs to another repository")
+            verify_vjev(output, full=True)
+            return output
+        source = Path(
+            snapshot_download(
+                repo_id=model_id,
+                revision=VJEV_REVISIONS[model_id],
+                token=False,
+                local_dir=workspace / "public" / model_id,
+                allow_patterns=[
+                    "model-*.safetensors",
+                    "model.safetensors.index.json",
+                    "config.json",
+                    "tokenizer*.json",
+                    "processor_config.json",
+                    "chat_template.jinja",
+                    "generation_config.json",
+                    "head.pt",
+                    "vjev.json",
+                ],
+            )
+        )
+        temporary = Path(tempfile.mkdtemp(prefix=".vjev-", dir=output.parent))
+        try:
+            export_vjev(source, temporary, model_id)
+            verify_vjev(temporary, full=True)
+            temporary.replace(output)
+        finally:
+            if temporary.exists():
+                shutil.rmtree(temporary)
+        return output
+
+    from .valen_export import MODEL_ID as VALEN_ID
+
+    if model_id == VALEN_ID:
+        if protocol not in ("auto", "valen_qwen_v1"):
+            raise ValueError(f"{model_id} uses valen_qwen_v1, not {protocol}")
+        from .valen_export import (
+            BASE_ID,
+            BASE_REVISION,
+            MODEL_REVISION,
+            export_valen,
+            verify_valen,
+        )
+
+        workspace = workspace.resolve()
+        output = workspace / "checkpoint" / model_id
+        if output.exists():
+            verify_valen(output, full=True)
+            return output
+        source = Path(
+            snapshot_download(
+                repo_id=model_id,
+                revision=MODEL_REVISION,
+                token=False,
+                local_dir=workspace / "public" / model_id,
+                allow_patterns=[
+                    "checkpoint.pt",
+                    "config.json",
+                    "training_metadata.json",
+                ],
+            )
+        )
+        base = Path(
+            snapshot_download(
+                repo_id=BASE_ID,
+                revision=BASE_REVISION,
+                token=False,
+                cache_dir=os.environ.get("HF_HUB_CACHE"),
+            )
+        )
+        output.parent.mkdir(parents=True, exist_ok=True)
+        temporary = Path(tempfile.mkdtemp(prefix=".valen-", dir=output.parent))
+        try:
+            export_valen(base, source, temporary)
+            verify_valen(temporary, full=True)
+            temporary.replace(output)
+        finally:
+            if temporary.exists():
+                shutil.rmtree(temporary)
+        return output
 
     workspace = workspace.resolve()
     output = workspace / "checkpoint" / model_id
@@ -241,7 +351,14 @@ def main() -> None:
     parser.add_argument("--workspace", type=Path, required=True)
     parser.add_argument(
         "--protocol",
-        choices=("auto", CHOICE_PROTOCOL, BRANCH_PROTOCOL, TINY_PROTOCOL),
+        choices=(
+            "auto",
+            CHOICE_PROTOCOL,
+            BRANCH_PROTOCOL,
+            TINY_PROTOCOL,
+            "valen_qwen_v1",
+            "vjev_vision_v1",
+        ),
         default="auto",
     )
     args = parser.parse_args()

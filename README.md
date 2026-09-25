@@ -9,11 +9,27 @@
 
 <p align="center">
   <a href="docs/guide.md"><b>Documentation</b></a> ·
+  <a href="#demos"><b>Demos</b></a> ·
   <a href="#getting-started"><b>Getting Started</b></a> ·
-  <a href="#example"><b>Example</b></a>
+  <a href="#example"><b>Example</b></a> ·
+  <a href="#updates"><b>Updates</b></a>
 </p>
 
 ---
+
+## Demos
+
+### Multimodal: live Sokoban
+
+![Five live Valen Sokoban games: No vLLM Jev and vLLM Jev](docs/assets/valen-sokoban-five-live.gif)
+
+Both runtimes played the same five levels from [Valen's Sokoban evaluation set](https://huggingface.co/datasets/Valen-Team/Valen-Eval-Game) with the same checkpoint and one A800 each.
+
+### Text: 40 concurrent decisions
+
+![Live Open-Jev-2B text decisions: No vLLM Jev and vLLM Jev](docs/assets/open-jev-2b-parallel-text-live.gif)
+
+The [Open-Jev-2B](https://huggingface.co/ZefanCai/Open-Jev-2B) author HTTP server and vLLM Jev received the same 40 text-only Choice requests at once, on one A800 each.
 
 ## About
 
@@ -22,6 +38,7 @@ vLLM Jev serves compatible Jev-style checkpoints through [vLLM](https://github.c
 - **Native vLLM serving:** scheduling, batching, compilation, KV cache, and metrics.
 - **Native decision readouts:** scalar candidate branches or marker-token scores, selected from the model format.
 - **Structured decisions:** Choice, Noul (yes/no), and Score (ordered levels) over HTTP.
+- **Multimodal inference:** Valen and vjev vision models accept text and images through the same System One API.
 - **Automatic setup:** give the launcher a supported Hugging Face model ID; it selects and verifies the native protocol. Serving does not train.
 
 ## Getting Started
@@ -70,6 +87,9 @@ Choose a model and run its command:
 | [ZefanCai/Open-Jev-9B](https://huggingface.co/ZefanCai/Open-Jev-9B) | `vllm-jev serve ZefanCai/Open-Jev-9B` |
 | [IamBusy/OpenJev-0.6B](https://huggingface.co/IamBusy/OpenJev-0.6B) | `vllm-jev serve IamBusy/OpenJev-0.6B` |
 | [lostargon/Tiny-Jev](https://huggingface.co/lostargon/Tiny-Jev) | `vllm-jev serve lostargon/Tiny-Jev` |
+| [Valen-Team/Valen-Preview-0923](https://huggingface.co/Valen-Team/Valen-Preview-0923) | `vllm-jev serve Valen-Team/Valen-Preview-0923` |
+| [yah01/vjev-vision](https://huggingface.co/yah01/vjev-vision) | `vllm-jev serve yah01/vjev-vision` |
+| [yah01/vjev-vision-pilot](https://huggingface.co/yah01/vjev-vision-pilot) | `vllm-jev serve yah01/vjev-vision-pilot` |
 
 ## Example
 
@@ -85,9 +105,19 @@ The response contains `answers.intent.choice` and `answers.intent.probabilities`
 
 See the [user guide](docs/guide.md) for supported models, serving options, and Choice, Noul, and Score examples. The plugin targets **vLLM 0.29.0** and **Python 3.12+**.
 
-## Hosted inference performance
+For image questions, start a [supported vision model](docs/guide.md#supported-models) and follow the [image request example](docs/guide.md#text-and-images). These adapters accept text and images; video input is not yet supported.
 
-Each row uses the same model, input, and GPU for both endpoints. Lower latency and higher throughput are better. Measured on one A800 GPU
+## Updates
+
+### 2026-09-25
+
+- Added multimodal decision inference with support for text and images.
+- Added a fused Tiny-Jev head: **12.1% higher throughput** in the measured 16-option, 16-concurrent workload.
+- On 500 Valen image questions, median latency fell from **231.9 to 77.3 ms** (**3.0×**) with **86.8% target-support accuracy** on both paths. [Results](#inference-performance).
+
+## Inference performance
+
+Each row uses the same model, input, and A800 GPU for both paths. Lower latency and higher throughput are better. Measurement methods are noted below.
 
 Paired values: **Without vLLM Jev → With vLLM Jev**.
 
@@ -109,10 +139,19 @@ Paired values: **Without vLLM Jev → With vLLM Jev**.
 | [Tiny-Jev](https://huggingface.co/lostargon/Tiny-Jev)² | Short | 8 | 216.9 → 28.8 | 222.0 → 45.7 | 36.61 → 254.99 | 7.5× | 7.0× |
 | [Tiny-Jev](https://huggingface.co/lostargon/Tiny-Jev)² | Long | 1 | 28.4 → 11.5 | 30.1 → 12.4 | 34.59 → 85.70 | 2.5× | 2.5× |
 | [Tiny-Jev](https://huggingface.co/lostargon/Tiny-Jev)² | Long | 8 | 223.0 → 43.3 | 224.3 → 59.7 | 35.75 → 179.94 | 5.1× | 5.0× |
+| [Valen-Preview-0923](https://huggingface.co/Valen-Team/Valen-Preview-0923)³ | Image | 1 | 231.9 → 77.3 | 240.2 → 82.0 | 4.30 → 12.90 | 3.0× | 3.0× |
+| [vjev-vision](https://huggingface.co/yah01/vjev-vision)⁴ | Image | 1 | 239.8 → 84.1 | 265.7 → 88.5 | 4.13 → 11.94 | 2.8× | 2.9× |
+| [vjev-vision-pilot](https://huggingface.co/yah01/vjev-vision-pilot)⁴ | Image | 1 | 231.4 → 84.2 | 242.1 → 88.4 | 4.28 → 11.92 | 2.7× | 2.8× |
 
+<details>
+<summary>Benchmark notes</summary>
 
+- ¹ OpenJev-0.6B uses the author's CUDA scorer as its baseline.
+- ² Tiny-Jev uses a serialized HTTP wrapper around the author's Python API; gains include batching.
+- ³ Valen uses sequential offline inference on 500 image questions. Both paths reached 86.8% target-support accuracy; choices agreed on 98.8%. Probability values differed, with a largest per-question difference of 0.295. HTTP time is excluded. A separate 500-request HTTP run at concurrency 8 reached 40.6 req/s (193.4 ms median latency).
+- ⁴ vjev uses the author's Python scorer versus vLLM Jev HTTP on 100 identical game images and the same A800. Only the vLLM side includes HTTP time. This measures serving speed, not game accuracy.
 
-¹ The 0.6B baseline used the author's scorer on CUDA. ² Tiny-Jev used a serialized HTTP wrapper around its Python API. Gains include serving and batching.
+</details>
 
 ## Contributing
 
